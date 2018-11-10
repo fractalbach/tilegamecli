@@ -1,9 +1,5 @@
 
 
-
-let ELEM = undefined // define me plz
-
-
 let gamestate = {}
 let ws = new Websocket("localhost:8080")
 
@@ -13,7 +9,7 @@ function incoming(message) {
 	display()
 }
 
-function display() {
+function display(elem) {
 	if (elem !== undefined) {
 		elem.innerText(JSON.Stringify(gamestate))
 	}

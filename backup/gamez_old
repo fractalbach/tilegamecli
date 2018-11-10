@@ -7,64 +7,20 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"reflect"
 	"strings"
 	"sync"
 
+	"github.com/fatih/color"
 	"github.com/fractalbach/ninjaServer/commander"
 	"github.com/fractalbach/ninjaServer/wshandle"
 )
 
-const helpMessage = `
-╔══════╦═════════════════════════════════════════════════════════════╗
-║ Tile ║                                                             ║
-║ Game ║             Guide to the Game Core Functions                ║
-║ Core ║                                                             ║
-╚══════╩═════════════════════════════════════════════════════════════╝
-
-About this Guide:
-	
-	Input is in the form of a text stream.
-	1 line corresponds to 1 function.
-	The text is interpretted and type checked.
-	
-	Primative Types are defined based on their 
-	corresponding JSON definitions.
-
-
-List of Functions:
-	
-	addEnt      (entType)     -> (uid)
-	delEnt      (uid)         -> (ok)
-	setLocation (uid, x, y)   -> (ok)
-	setTarget   (uid, x, y)   -> (ok)
-	nextTick    ()            -> (tickNum)
-
-
-List of Names and their Types:
-
-	uid      :: int        unique identifier
-	entType  :: string     the type of entity.
-	propKey  :: string     property key.
-	propVal  :: string     property value.
-	x        :: int        grid location x.
-	y        :: int        grid location y.
-	tickNum  :: int        number of ticks since start.
-	ok       :: boolean    indicates a successful action.
-	
-	
-Comon Interpretter Errors:
-
-	Syntax Error.
-	Parameter Type Error.
-
-	
-Common Game Errors:
-
-	Entity Type does not exist.
-	UID does not exist.
-
-
+const Welcome = `
+╔════════════════════════════════════════════════════════════════════╗
+║                             Welcome to                             ║
+║                         ~ The Tile Game ~                          ║
+║                      Command Line Interface!                       ║
+╚════════════════════════════════════════════════════════════════════╝
 `
 
 // ______________________________________________________________________
@@ -140,27 +96,26 @@ func (em *EntMap) Add(e Entity) {
 }
 
 // ______________________________________________________________________
-//			    Command Center
+//			    Game Commands
 // ======================================================================
+
+var helpMessage = `
+List of Commands:
+
+login <username>
+logout <username>
+grid
+`
 
 var fMap = map[string]interface{}{
 	"grid":  Grid,
 	"login": Login,
 	"help":  Help,
-	"add":  Add,
-	"mult": Mult,
 }
 var center = &commander.Center{FuncMap: fMap}
 
-// the function names are added onto this in init().
-var functionHelpMessage = `List of Implemented Functions:`
-
-// ______________________________________________________________________
-//			    Game Commands
-// ======================================================================
-
 func Help() string {
-	return functionHelpMessage
+	return helpMessage
 }
 
 func Grid() string {
@@ -182,13 +137,13 @@ func Logout(name string) {
 	return
 }
 
-func Add(a, b float64) float64 {
-	return a + b
-}
+// func Move(id, x, y int) {
 
-func Mult(a, b float64) float64 {
-	return a * b
-}
+// }
+
+// func Projectile(id, x, y int) {
+
+// }
 
 // ______________________________________________________________________
 // 			 Server Related Stuff
@@ -239,69 +194,6 @@ func callSimple(s string) (string, bool) {
 	return fmt.Sprintln(result), true
 }
 
-func callParse(s string) (string, bool) {
-	if s == "help" {
-		return Help(), true
-	}
-	name, args, err := parse(s)
-	if err != nil {
-		return fmt.Sprint("Parser: ", err), false
-	}
-	result, err := center.CallWithStrings(name, args)
-	if err != nil {
-		return fmt.Sprint("Caller: ", err), false
-	}
-	return fmt.Sprint(result), true
-}
-
-// parses strings in the standard function syntax.  FunctionName(arg1, arg2, arg3)
-func parse(s string) (string, []string, error) {
-	var name string
-	var args []string
-	var err error
-	var currentArgument string
-
-	s = strings.Replace(s, " ", "", -1)
-
-	for i, r := range s {
-		switch r {
-		case '(':
-			s = s[i+1:]
-			goto parseArgs
-		default:
-			name += string(r)
-		}
-	}
-	err = fmt.Errorf("syntax error: '(' not found.")
-	goto ret
-parseArgs:
-	currentArgument = ""
-	for i, r := range s {
-		switch r {
-		case ')':
-			s = s[i+1:]
-			if len(currentArgument) > 0 {
-				args = append(args, currentArgument)
-			}
-			goto finish
-		case ',':
-			args = append(args, currentArgument)
-			currentArgument = ""
-			continue
-		default:
-			currentArgument += string(r)
-		}
-	}
-	err = fmt.Errorf("syntax error: ')' not found.")
-	goto ret
-finish:
-	if len(s) != 0 {
-		err = fmt.Errorf("syntax error: extra characters found after ')'.")
-	}
-ret:
-	return name, args, err
-}
-
 func runServer() {
 	room := wshandle.NewClientRoom()
 	go messageWatcher(room)
@@ -322,19 +214,42 @@ func handle(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, page)
 }
 
+func prompt() {
+	color.Set(color.BgBlue)
+	fmt.Print("[game]")
+	color.Unset()
+	fmt.Print(" ")
+	color.Set(color.FgGreen)
+	fmt.Print(">>>")
+	color.Unset()
+	fmt.Print(" ")
+}
+
+func printWelcome() {
+	color.Set(color.FgHiMagenta)
+	fmt.Print(Welcome)
+	color.Unset()
+}
+
 func runStdin() {
+	printWelcome()
 	s := bufio.NewScanner(os.Stdin)
+	prompt()
 	for s.Scan() {
 		line := s.Text()
 		if line == "" {
+			prompt()
 			continue
 		}
-		result, ok := callParse(line)
+		result, ok := callSimple(line)
 		if !ok {
+			color.Set(color.FgRed)
 			fmt.Println(result)
+			color.Unset()
 		} else {
 			fmt.Println(result)
 		}
+		prompt()
 	}
 }
 
@@ -349,21 +264,9 @@ var (
 
 func init() {
 	flag.BoolVar(&serverFlag, "serve", false, serverFlagHelp)
-	flag.Usage = func() {
-		fmt.Fprint(os.Stderr, helpMessage, "Command Line Usage:\n\n")
-		flag.PrintDefaults()
-	}
-
-	// generate the active function guide.
-	for k, v := range fMap {
-		s := fmt.Sprint(reflect.TypeOf(v))
-		s = strings.Replace(s, "func", k, 1)
-		functionHelpMessage += fmt.Sprint("\n\t", s)
-	}
 }
 
 func main() {
-	flag.Parse()
 	if serverFlag {
 		runServer()
 	} else {
