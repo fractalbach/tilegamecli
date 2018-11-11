@@ -11,8 +11,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/fractalbach/ninjaServer/commander"
-	"github.com/fractalbach/ninjaServer/wshandle"
+	"github.com/tilegame/gameserver/commander"
+	"github.com/tilegame/gameserver/wshandle"
 )
 
 const helpMessage = `
@@ -147,8 +147,8 @@ var fMap = map[string]interface{}{
 	"grid":  Grid,
 	"login": Login,
 	"help":  Help,
-	"add":  Add,
-	"mult": Mult,
+	"add":   Add,
+	"mult":  Mult,
 }
 var center = &commander.Center{FuncMap: fMap}
 
@@ -196,47 +196,72 @@ func Mult(a, b float64) float64 {
 
 // default landing page if you arent connecting from the github page.
 const page = `
-<html><body>
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
 <h1> Websocket Splash Page </h1>
-<p>Hello there! Check your console!  Use the <code>ws.send()</code>
-command to send a message! </p>
+<p>Hello there! Send a command with <code>ws.send()</code> in your web console, or enter a command in the input box. </p>
+<h2>Command Terminal</h2>
+<pre id="log"></pre>
+<form id="cmdform">
+    	<input id="cmdterm" type="text" placeholder="Type Command" autocomplete="off">
+    	<input type="submit" value="Send Command">
+</form>
 <script>
  var ws = new WebSocket("ws://" + location.host + "/ws");
- ws.onmessage = function(e) {console.log(e.data)};
+ var logger = document.querySelector('#log');
+ var cmdterm = document.querySelector('#cmdterm');
+ var cmdform = document.querySelector('#cmdform');
+cmdform.onsubmit = function(event) {
+    if (cmdterm.value == "") {
+        return false;
+    }
+    if (!ws) {
+        return false;
+    }
+    ws.send(cmdterm.value);
+    cmdterm.value = "";
+    cmdterm.focus(); 
+    return false;
+};
+ws.onmessage = function(e) {
+    console.log(e.data);
+    logger.innerText = logger.innerText + e.data + "\n";
+    logger.scrollTop = logger.scrollHeight;
+};
  console.log(ws);
 </script>
-</body></html>
+<style>
+    #log {
+        min-height: 20em;
+        height: 20em;
+        min-height: 20em;
+        resize: vertical;
+        background: #eee;
+        whitespace: nowrap-pre;
+        border: solid 1px gray;
+        overflow: auto;
+    }
+</style>
+</body>
+</html>
 `
 
 func messageWatcher(room *wshandle.ClientRoom) {
 	for {
 		select {
 		case msg := <-room.Messages:
-			s, _ := callSimple(string(msg.Data))
+			s, _ := callParse(string(msg.Data))
 			log.Println(s)
 			if client, ok := room.Client(msg.Id); ok {
 				fmt.Fprintln(client, s)
 			}
 		}
 	}
-}
-
-func callSimple(s string) (string, bool) {
-	s = strings.TrimSpace(s)
-	arr := strings.Split(s, " ")
-	name := arr[0]
-	if name == "" {
-		return "please enter something.", false
-	}
-	args := []string{}
-	if len(arr) > 1 {
-		args = arr[1:]
-	}
-	result, err := center.CallWithStrings(name, args)
-	if err != nil {
-		return fmt.Sprintln(err), false
-	}
-	return fmt.Sprintln(result), true
 }
 
 func callParse(s string) (string, bool) {
