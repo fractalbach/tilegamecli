@@ -194,62 +194,8 @@ func Mult(a, b float64) float64 {
 // 			 Server Related Stuff
 // ======================================================================
 
-// default landing page if you arent connecting from the github page.
-const page = `
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-</head>
-<body>
-<h1> Websocket Splash Page </h1>
-<p>Hello there! Send a command with <code>ws.send()</code> in your web console, or enter a command in the input box. </p>
-<h2>Command Terminal</h2>
-<pre id="log"></pre>
-<form id="cmdform">
-    	<input id="cmdterm" type="text" placeholder="Type Command" autocomplete="off">
-    	<input type="submit" value="Send Command">
-</form>
-<script>
- var ws = new WebSocket("ws://" + location.host + "/ws");
- var logger = document.querySelector('#log');
- var cmdterm = document.querySelector('#cmdterm');
- var cmdform = document.querySelector('#cmdform');
-cmdform.onsubmit = function(event) {
-    if (cmdterm.value == "") {
-        return false;
-    }
-    if (!ws) {
-        return false;
-    }
-    ws.send(cmdterm.value);
-    cmdterm.value = "";
-    cmdterm.focus(); 
-    return false;
-};
-ws.onmessage = function(e) {
-    console.log(e.data);
-    logger.innerText = logger.innerText + e.data + "\n";
-    logger.scrollTop = logger.scrollHeight;
-};
- console.log(ws);
-</script>
-<style>
-    #log {
-        min-height: 20em;
-        height: 20em;
-        min-height: 20em;
-        resize: vertical;
-        background: #eee;
-        whitespace: nowrap-pre;
-        border: solid 1px gray;
-        overflow: auto;
-    }
-</style>
-</body>
-</html>
-`
+//go:generate go run src/file2string.go -src "src/index.html" -dst "page.go" -var "page" -pkg "main"
+//go:generate go fmt page.go
 
 func messageWatcher(room *wshandle.ClientRoom) {
 	for {
