@@ -7,8 +7,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"reflect"
-	"strings"
 	"sync"
 
 	"github.com/tilegame/gameserver/commander"
@@ -67,6 +65,14 @@ Common Game Errors:
 
 `
 
+const prefixGeneratedHelp = `
+╔══════╦═════════════════════════════════════════════════════════════╗
+║ Tile ║                                                             ║
+║ Game ║               List of Implemented Functions                 ║
+║ Core ║                                                             ║
+╚══════╩═════════════════════════════════════════════════════════════╝
+`
+
 // ______________________________________________________________________
 //			    Gameplay Stuff
 // ======================================================================
@@ -77,15 +83,15 @@ const (
 	PacePlayer     = 300
 	PaceMonster    = 400
 	PaceProjectile = 200
-
-	// The number of tiles in each direction.
-	GridSize = 30
+	GridSize       = 30 // number of tiles for both x and y dimensions
 )
 
 var (
-	uid      = 1
-	gamegrid = [GridSize][GridSize]int{}
-	ents     = NewEntMap()
+	uid               = 1
+	gamegrid          = [GridSize][GridSize]int{}
+	ents              = NewEntMap()
+	center            = &commander.Center{FuncMap: fMap}
+	actualHelpMessage = ""
 )
 
 func nextuid() int {
@@ -140,7 +146,7 @@ func (em *EntMap) Add(e Entity) {
 }
 
 // ______________________________________________________________________
-//			    Command Center
+//			    Game Commands
 // ======================================================================
 
 var fMap = map[string]interface{}{
@@ -149,24 +155,17 @@ var fMap = map[string]interface{}{
 	"help":  Help,
 	"add":   Add,
 	"mult":  Mult,
+	"addi":  addi,
 }
-var center = &commander.Center{FuncMap: fMap}
-
-// the function names are added onto this in init().
-var functionHelpMessage = `List of Implemented Functions:`
-
-// ______________________________________________________________________
-//			    Game Commands
-// ======================================================================
 
 func Help() string {
-	return functionHelpMessage
+	return actualHelpMessage
 }
 
 func Grid() string {
 	s := ""
-	for _ = range gamegrid {
-		for _ = range gamegrid {
+	for range gamegrid {
+		for range gamegrid {
 			s += "."
 		}
 		s += "\n"
@@ -190,6 +189,10 @@ func Mult(a, b float64) float64 {
 	return a * b
 }
 
+func addi(a, b int) int {
+	return a + b
+}
+
 // ______________________________________________________________________
 // 			 Server Related Stuff
 // ======================================================================
@@ -197,86 +200,41 @@ func Mult(a, b float64) float64 {
 //go:generate go run src/file2string.go -src "src/index.html" -dst "page.go" -var "page" -pkg "main"
 //go:generate go fmt page.go
 
+var clientNotThere = "MessageWatcher: got a message from id(%v), but no client exists.\n"
+
 func messageWatcher(room *wshandle.ClientRoom) {
 	for {
 		select {
 		case msg := <-room.Messages:
-			s, _ := callParse(string(msg.Data))
-			log.Println(s)
-			if client, ok := room.Client(msg.Id); ok {
-				fmt.Fprintln(client, s)
+			client, ok := room.Client(msg.Id)
+			if !ok {
+				log.Printf(clientNotThere, msg.Id)
+				continue
+			}
+			result, err := callParse(string(msg.Data))
+			if err != nil {
+				fmt.Fprintln(client, err)
+			} else {
+				fmt.Fprintln(client, result)
 			}
 		}
 	}
 }
 
-func callParse(s string) (string, bool) {
+func callParse(s string) (string, error) {
 	if s == "help" {
-		return Help(), true
+		return Help(), nil
 	}
-	name, args, err := parse(s)
+	result, err := center.CallWithFunctionString(s)
 	if err != nil {
-		return fmt.Sprint("Parser: ", err), false
+		return "", err
 	}
-	result, err := center.CallWithStrings(name, args)
-	if err != nil {
-		return fmt.Sprint("Caller: ", err), false
-	}
-	return fmt.Sprint(result), true
-}
-
-// parses strings in the standard function syntax.  FunctionName(arg1, arg2, arg3)
-func parse(s string) (string, []string, error) {
-	var name string
-	var args []string
-	var err error
-	var currentArgument string
-
-	s = strings.Replace(s, " ", "", -1)
-
-	for i, r := range s {
-		switch r {
-		case '(':
-			s = s[i+1:]
-			goto parseArgs
-		default:
-			name += string(r)
-		}
-	}
-	err = fmt.Errorf("syntax error: '(' not found.")
-	goto ret
-parseArgs:
-	currentArgument = ""
-	for i, r := range s {
-		switch r {
-		case ')':
-			s = s[i+1:]
-			if len(currentArgument) > 0 {
-				args = append(args, currentArgument)
-			}
-			goto finish
-		case ',':
-			args = append(args, currentArgument)
-			currentArgument = ""
-			continue
-		default:
-			currentArgument += string(r)
-		}
-	}
-	err = fmt.Errorf("syntax error: ')' not found.")
-	goto ret
-finish:
-	if len(s) != 0 {
-		err = fmt.Errorf("syntax error: extra characters found after ')'.")
-	}
-ret:
-	return name, args, err
+	return fmt.Sprint(result), nil
 }
 
 func runServer() {
 	room := wshandle.NewClientRoom()
 	go messageWatcher(room)
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handle)
 	mux.HandleFunc("/ws", room.Handle)
@@ -300,9 +258,9 @@ func runStdin() {
 		if line == "" {
 			continue
 		}
-		result, ok := callParse(line)
-		if !ok {
-			fmt.Println(result)
+		result, err := callParse(line)
+		if err != nil {
+			fmt.Println(err)
 		} else {
 			fmt.Println(result)
 		}
@@ -324,13 +282,7 @@ func init() {
 		fmt.Fprint(os.Stderr, helpMessage, "Command Line Usage:\n\n")
 		flag.PrintDefaults()
 	}
-
-	// generate the active function guide.
-	for k, v := range fMap {
-		s := fmt.Sprint(reflect.TypeOf(v))
-		s = strings.Replace(s, "func", k, 1)
-		functionHelpMessage += fmt.Sprint("\n\t", s)
-	}
+	actualHelpMessage = prefixGeneratedHelp + center.HelpMessage()
 }
 
 func main() {
